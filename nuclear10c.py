@@ -64,7 +64,7 @@ params["nwf_beta"] = beta_from_conf(2e-4, 0.07) # dis.beta(μ*outof, (1-μ)*outo
 #For mu_winter I might want something more like beta(0.3,0.5)
 #mu_winter = 0.235
 #outof = 10
-params["pwinter"] = beta_from_conf(0.1,0.4) #dis.beta(mu_winter*outof, (1-mu_winter)*outof)
+params["pwinter"] = beta_from_conf(0.01,0.4) #dis.beta(mu_winter*outof, (1-mu_winter)*outof)
 #mu_10dead = 0.705
 #outof = 54
 params["p10dead"] = beta_from_conf(0.6,0.8) # dis.beta(mu_10dead*outof, (1-mu_winter)*outof)
