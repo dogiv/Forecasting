@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from numpy.random import rand
 
 
+# generate lognormal distribution from 90% confidence interval
 def lognorm_from_conf(fifth, ninetyfifth):
     n5 = np.log(fifth)
     n95 = np.log(ninetyfifth)
@@ -19,6 +20,8 @@ def lognorm_from_conf(fifth, ninetyfifth):
     scl = np.exp(μ)
     return dis.lognorm(σ, scale=scl)
 
+# Generate beta distribution from confidence interval (5th and 95th percentile)
+# Mainly intended for small probabilities, algorithm is not robust in all cases
 def beta_from_conf(fifth, ninetyfifth):
     #mu = np.exp(np.log(fifth)/2 + np.log(ninetyfifth)/2)
     mu = (fifth+ninetyfifth)/2
@@ -51,19 +54,6 @@ def beta_from_conf(fifth, ninetyfifth):
     print(a,b,i0,i1,beta.mean())
     return beta
 
-
-p = {}
-
-p["bolide>1km"] = beta_from_conf(0.3e-8,4e-8)
-p["10%dead|bolide"] = beta_from_conf(0.78,0.99)
-
-#params["pwinter"] = beta_from_conf(0.01,0.4) #dis.beta(mu_winter*outof, (1-mu_winter)*outof)
-
-#params["p10dead"] = beta_from_conf(0.6,0.8) # dis.beta(mu_10dead*outof, (1-mu_winter)*outof)
-#params["nwf_avg_frac_change"] = dis.norm(-0.04,0.06)
-#params["nwf_frac_change_stdev"] = lognorm_from_conf(0.01,0.25)
-
-
 def generate_samples(params, n):
     samples = {}
     for k in params.keys():
@@ -75,7 +65,6 @@ def pick_sample(samples, i):
     for k in samples.keys():
         g[k] = np.array([samples[k][i]])
     return g
-
 
 def pltdist(d,d2=None,plot="cdf"):
     i = d.interval(0.99)
@@ -94,17 +83,6 @@ def pltdist(d,d2=None,plot="cdf"):
         else:
             plt.plot(x, d.cdf(x))
 
-
-#nwfb = params["nwf_beta"]
-#pltdist(nwfb)
-
-#x=np.linspace(0,1,50000)
-#plt.loglog(x,nb.pdf(x), x, n1.pdf(x))
-#plt.axis([1e-5, 1, 1e-5, 1000])
-
-#print(nb.mean())
-#print(nb.interval(0.9))
-
 def simulate_all(samples):
     if len(samples.values()) < 1:
         return None
@@ -113,48 +91,53 @@ def simulate_all(samples):
     for i in range(n):
         results.append(simulate(samples, i))
     return results
-        
-def simulate(samples, i, seed=-1):
-    nwf = samples["nwf_beta"][i] # Frequency of major nuclear war
-    pwinter = samples["pwinter"][i] # p(nuclear winter | nwf). Doesn't change with time.
-    p10dead = samples["p10dead"][i] # p(10% of humans die | nuclear winter)
-    nwf_avg_change = samples["nwf_avg_frac_change"][i]
-    nwf_chg_stdev = samples["nwf_frac_change_stdev"][i]
-    nwf_chg = dis.norm(nwf_avg_change, nwf_chg_stdev).rvs(80)
-    
-    if seed == -1:
-        seed = i
-    np.random.seed(seed)
-    randnums = rand(80,3)
-    for year in range(2022, 2099):
-        i = year-2022
-        # Determine what happens this year
-        if randnums[i,0] < nwf: # There's a major nuclear war this year
-            if randnums[i,1] < pwinter: # It causes a nuclear winter
-                if randnums[i,2] < p10dead: # That kills more than 10% of humans
-                    if year < 2029: # assume these deaths take a year or so
-                        return (1, 1, 1) # occurred before 2030, 2050, and 2100
-                    if year < 2049:
-                        return (0, 1, 1) # occurred before 2050 and 2100
-                    return (0, 0, 1) # occurred before 2100
 
-        # Update the probabilites/frequencies for next year:
-                # sample from a normal to see how much the frequency of nuclear war changes.
-        nwf_change = nwf_chg[i]
-        nwf += nwf_change*nwf # It's a fractional change
-            
+
+p = {}
+
+p["bolide>1km"] = beta_from_conf(0.3e-8,4e-8) # mean 1.7e-8
+p["10%dead|bolide"] = beta_from_conf(0.78,0.99) # mean 0.9
+p["supereruption"] = beta_from_conf(2e-5,9e-5) # mean 5e-5
+p["10%dead|eruption"] = beta_from_conf(0.01,0.8) # mean 0.31
+p["10dead_avg_change"] = dis.norm(-0.01,0.01)
+p["10dead_change_stdev"] = lognorm_from_conf(1e-3,0.05)
+
+
+def simulate(samples, i, seed=-1):
+    #if seed == -1:
+    #    seed = i
+    #np.random.seed(seed)
     
-    # If nothing has happened, return all zeros
-    return (0, 0, 0)
+    pbolide = samples["bolide>1km"][i]
+    p10bolide = samples["10%dead|bolide"][i]
+    pvolcano = samples["supereruption"][i]
+    p10volcano_init = samples["10%dead|eruption"][i]
+    p10volcano_avg_chg = samples["10dead_avg_change"][i]
+    p10_chg = dis.norm(p10volcano_avg_chg, samples["10dead_change_stdev"][i]).rvs(78)
+    
+    p10volcano = [p10volcano_init]
+    for year in range(2023, 2099):
+        p10volcano.append(p10volcano[-1]+p10_chg[year-2023]*p10volcano[-1])
+        
+    p10v = np.array(p10volcano)
+    
+    pcatastrophe_per_year = p10v*pvolcano + pbolide*p10bolide #array
+    psurvival = 1 - pcatastrophe_per_year # array, per year survival prob
+    pcatastrophe_2100 = 1 - np.prod(psurvival)
+    pcatastrophe_2050 = 1 - np.prod(psurvival[0:28])
+    pcatastrophe_2030 = 1 - np.prod(psurvival[0:8])
+    
+    return pcatastrophe_2030, pcatastrophe_2050, pcatastrophe_2100#, pcatastrophe_per_year
+
 
 np.random.seed(0)
 g = generate_samples(p, 1000)
 
 output = simulate_all(g)
-p2030 = len([s for s in output if s[0]==1])/len(output)
-p2050 = len([s for s in output if s[1]==1])/len(output)
-p2100 = len([s for s in output if s[2]==1])/len(output)
-print("Probability of 10% killed by 2030:", p2030, " by 2050:", p2050, " by 2100:", p2100)
+p2030 = np.mean([o[0] for o in output])
+p2050 = np.mean([o[1] for o in output])
+p2100 = np.mean([o[2] for o in output])
+print("\nProbability of 10% killed by 2030:", p2030, " by 2050:", p2050, " by 2100:", p2100)
 
 
 #for i in range(1000):
